@@ -1,3 +1,10 @@
+"""
+Database Models and Forms
+
+This module defines the SQLAlchemy models for weather data and users,
+as well as the Flask-WTF login form.
+"""
+
 from db import db
 from flask_login import UserMixin
 from flask_wtf import FlaskForm
@@ -6,6 +13,7 @@ from wtforms.validators import DataRequired
 
 
 class WeatherData(db.Model):
+    """Stores weather sensor data: temperature, humidity, and pressure."""
     id = db.Column(db.Integer, primary_key=True)
     temperature = db.Column(db.Float)
     humidity = db.Column(db.Float)
@@ -14,11 +22,13 @@ class WeatherData(db.Model):
 
 
 class User(UserMixin, db.Model):
+    """User model for authentication, storing username and hashed password."""
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
 
 class LoginForm(FlaskForm):
+    """Login form for user authentication."""
     username = StringField('Username', validators=[DataRequired()])
     password = PasswordField('Password', validators=[DataRequired()])
     submit = SubmitField('Login')

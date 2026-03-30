@@ -1,3 +1,10 @@
+"""
+Flask Weather Station Server - Main Application
+
+This module handles the Flask app initialization, database configuration,
+user authentication, and API endpoints for receiving weather data.
+"""
+
 import datetime
 import os
 from functools import wraps
@@ -61,11 +68,16 @@ login_manager.login_view = 'login'
 
 @login_manager.user_loader
 def load_user(user_id):
+    """Flask-Login user loader to retrieve a user from the database by ID."""
     return User.query.get(int(user_id))
 
 
 # Helper decorators
 def require_api_key(f):
+    """
+    Decorator to ensure the request contains a valid 'X-API-Key' header.
+    Matches against the API_KEY_PICO environment variable.
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
         api_key = request.headers.get('X-API-Key')
@@ -81,6 +93,7 @@ def require_api_key(f):
 @app.route('/')
 @login_required
 def main():
+    """Redirect root access to the dashboard if authenticated."""
     return redirect(url_for('dashboard'))
 
 
@@ -89,6 +102,10 @@ def main():
 @csrf.exempt
 @require_api_key
 def receive_weather_data():
+    """
+    API endpoint for the weather station (e.g., Pico) to submit data.
+    Validates input ranges and stores data in the SQLite database.
+    """
     data = request.get_json()
 
     # Check required fields
@@ -128,6 +145,10 @@ def receive_weather_data():
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5 per minute")
 def login():
+    """
+    Handles user login. Validates credentials against hashed passwords
+    stored in the database using bcrypt.
+    """
     form = LoginForm()
     if form.validate_on_submit():
         user = User.query.filter_by(username=form.username.data).first()
@@ -148,6 +169,7 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
+    """Logs out the current user and redirects to the login page."""
     logout_user()
     return redirect(url_for('login'))
 
@@ -156,6 +178,10 @@ def logout():
 @limiter.limit("100 per minute")
 @login_required
 def dashboard():
+    """
+    Renders the main weather dashboard with the latest 10 data records
+    for the table and the graph.
+    """
     weather_data = WeatherData.query.order_by(WeatherData.timestamp.desc()).limit(10).all()
     # Reverse to show chronological order on the graph
     weather_data_chrono = weather_data[::-1]
@@ -170,6 +196,10 @@ def dashboard():
 @login_required
 @limiter.limit("100 per minute")
 def get_recent_weather():
+    """
+    Returns the latest 10 weather records in JSON format.
+    Used for AJAX polling on the dashboard page.
+    """
     # Return the same data as the dashboard, but in JSON format for updates
     weather_data = WeatherData.query.order_by(WeatherData.timestamp.desc()).limit(10).all()
     weather_data_chrono = weather_data[::-1]
@@ -193,16 +223,19 @@ def get_recent_weather():
 
 @app.errorhandler(404)
 def not_found(error):
+    """Custom error handler for 404 Page Not Found errors."""
     return render_template('404.html'), 404
 
 
 @app.errorhandler(429)
 def ratelimit_handler(error):
+    """Custom error handler for 429 Too Many Requests (rate limiting)."""
     return "Too many requests. Please try again later.", 429
 
 
 if __name__ == '__main__':
     with app.app_context():
+        # Ensure database tables are created before starting
         db.create_all()
     app.run(debug=False)
 

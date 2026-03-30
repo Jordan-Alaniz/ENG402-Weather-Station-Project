@@ -1,3 +1,10 @@
+"""
+Database Creation Utility
+
+Run this script directly to initialize the SQLite database and create 
+the necessary tables for weather data and users.
+"""
+
 from flask import Flask
 from db import db
 import models

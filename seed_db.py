@@ -1,3 +1,10 @@
+"""
+Database Seeding Utility
+
+Creates an initial 'admin' user with a secure password if one 
+does not already exist in the database.
+"""
+
 from flask_sqlalchemy import SQLAlchemy
 import os
 import bcrypt

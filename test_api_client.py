@@ -1,3 +1,10 @@
+"""
+API Test Client
+
+A simple script to test the /api/weather POST endpoint with sample data.
+Ensures the server is up and rejecting invalid API keys.
+"""
+
 import requests
 import os
 from dotenv import load_dotenv

@@ -1,3 +1,9 @@
+/* 
+   Weather Station Dashboard Styles
+   Author: Jordan Alaniz
+   Includes: Global variables, common layout, and page-specific styling
+*/
+
 body {
     font-family: 'Roboto', sans-serif;
     background-color: #f4f7f6;
@@ -20,7 +26,7 @@ h1, h2 {
     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
 }
 
-/* Dashboard specific */
+/* Dashboard specific: Chart container and Data Table */
 .chart-container {
     width: 100%;
     height: 50vh;
@@ -57,7 +63,7 @@ tr:hover {
     font-weight: bold;
 }
 
-/* Login specific */
+/* Login specific: Centered login card and forms */
 .centered-container {
     display: flex;
     justify-content: center;
@@ -119,7 +125,7 @@ tr:hover {
     background-color: #34495e;
 }
 
-/* 404 specific */
+/* 404 specific: Error titles and action buttons */
 .error-container {
     text-align: center;
     max-width: 400px;

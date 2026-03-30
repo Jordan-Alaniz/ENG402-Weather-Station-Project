@@ -1,3 +1,10 @@
+"""
+Weather Station Client (e.g., Raspberry Pi Pico)
+
+Simulates weather data collection and sends it periodically 
+via HTTP POST to the central Flask server.
+"""
+
 import datetime
 import os
 import time

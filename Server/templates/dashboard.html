@@ -1,4 +1,9 @@
 <!DOCTYPE html>
+<!--
+    Weather Dashboard Template
+    This page displays current weather trends with a real-time graph
+    and a table of the most recent observations.
+-->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -49,6 +54,7 @@
         </table>
     </div>
     <script>
+        // Configuration for the Chart.js graph
         const labels = JSON.parse('{{ labels | tojson | safe }}');
         const tempData = JSON.parse('{{ temperature | tojson | safe }}');
         const humidityData = JSON.parse('{{ humidity | tojson | safe }}');
@@ -147,7 +153,11 @@
             config
         );
 
-        // Auto-update function
+        /**
+         * AJAX Polling function
+         * Fetches new weather data from the /api/recent_weather endpoint
+         * and updates the chart and table dynamically.
+         */
         async function updateDashboard() {
             try {
                 const response = await fetch('{{ url_for("get_recent_weather") }}');
