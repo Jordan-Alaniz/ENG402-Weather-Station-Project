@@ -5,6 +5,8 @@ import time
 import requests
 from dotenv import load_dotenv
 
+import random
+
 # Load environment variables
 load_dotenv('secrets.env')
 
@@ -21,9 +23,9 @@ def main():
     while True:
         # Replace with real sensor data if available
         payload = {
-            "temperature": 72.5,
-            "humidity": 45.0,
-            "pressure": 1013.2,
+            "temperature": random.uniform(70, 80),
+            "humidity": random.uniform(40, 60),
+            "pressure": random.uniform(950, 1050),
             "timestamp": datetime.datetime.now().isoformat()
         }
 
@@ -54,7 +56,8 @@ def main():
             print(f"Request error: {e}")
 
         # Wait before sending the next update
-        time.sleep(60)
+        while time.time() % 60 != 59:
+            time.sleep(1)
 
 
 if __name__ == "__main__":
