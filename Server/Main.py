@@ -1,3 +1,10 @@
+"""
+Flask Weather Station Server - Main Application
+
+This module handles the Flask app initialization, database configuration,
+user authentication, and API endpoints for receiving weather data.
+"""
+
 import datetime
 import os
 from functools import wraps
@@ -16,7 +23,6 @@ from models import WeatherData, User, LoginForm
 
 # Initialize Flask app
 app = Flask(__name__)
-app.debug = False
 
 # Load environment variables
 load_dotenv('secrets.env')
@@ -27,18 +33,25 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:/
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # No JS access
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=1)
+
+# Ensure the app is not running with a default secret key in production
+if os.environ.get('FLASK_ENV') == 'production' and (not app.config["SECRET_KEY"] or app.config["SECRET_KEY"] == "your_secret_key_here"):
+    raise RuntimeError("SECRET_KEY must be set in production environment!")
 
 # Extensions
 db.init_app(app)
 csrf = CSRFProtect(app)
 Talisman(app,
-         force_https=False,  # Set to True in production
+         force_https=os.environ.get('FLASK_ENV') == 'production',
          strict_transport_security=True,
          content_security_policy={
              'default-src': "'self'",
-             'script-src': "'self'",
-             'style-src': "'self' 'unsafe-inline'",
+             'script-src': "'self' 'unsafe-inline'",
+             'style-src': "'self' 'unsafe-inline' https://fonts.googleapis.com",
+             'font-src': "'self' https://fonts.gstatic.com",
+             'img-src': "'self' data:",
          }
          )
 
@@ -55,11 +68,16 @@ login_manager.login_view = 'login'
 
 @login_manager.user_loader
 def load_user(user_id):
+    """Flask-Login user loader to retrieve a user from the database by ID."""
     return User.query.get(int(user_id))
 
 
 # Helper decorators
 def require_api_key(f):
+    """
+    Decorator to ensure the request contains a valid 'X-API-Key' header.
+    Matches against the API_KEY_PICO environment variable.
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
         api_key = request.headers.get('X-API-Key')
@@ -75,6 +93,7 @@ def require_api_key(f):
 @app.route('/')
 @login_required
 def main():
+    """Redirect root access to the dashboard if authenticated."""
     return redirect(url_for('dashboard'))
 
 
@@ -83,6 +102,10 @@ def main():
 @csrf.exempt
 @require_api_key
 def receive_weather_data():
+    """
+    API endpoint for the weather station (e.g., Pico) to submit data.
+    Validates input ranges and stores data in the SQLite database.
+    """
     data = request.get_json()
 
     # Check required fields
@@ -122,6 +145,10 @@ def receive_weather_data():
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5 per minute")
 def login():
+    """
+    Handles user login. Validates credentials against hashed passwords
+    stored in the database using bcrypt.
+    """
     form = LoginForm()
     if form.validate_on_submit():
         user = User.query.filter_by(username=form.username.data).first()
@@ -132,9 +159,9 @@ def login():
                 login_user(user, remember=True)
                 return redirect(url_for('dashboard'))
             else:
-                app.logger.warning(f"Password mismatch for user: {form.username.data}")
+                app.logger.warning(f"Login failed: Invalid password for user {form.username.data}")
         else:
-            app.logger.warning(f"User not found: {form.username.data}")
+            app.logger.warning(f"Login failed: User not found {form.username.data}")
         flash('Invalid username or password')
     return render_template('login.html', form=form)
 
@@ -142,6 +169,7 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
+    """Logs out the current user and redirects to the login page."""
     logout_user()
     return redirect(url_for('login'))
 
@@ -150,22 +178,64 @@ def logout():
 @limiter.limit("100 per minute")
 @login_required
 def dashboard():
+    """
+    Renders the main weather dashboard with the latest 10 data records
+    for the table and the graph.
+    """
     weather_data = WeatherData.query.order_by(WeatherData.timestamp.desc()).limit(10).all()
-    return render_template('dashboard.html', weather_data=weather_data)
+    # Reverse to show chronological order on the graph
+    weather_data_chrono = weather_data[::-1]
+    labels = [entry.timestamp.strftime('%H:%M') for entry in weather_data_chrono]
+    temperature = [entry.temperature for entry in weather_data_chrono]
+    humidity = [entry.humidity for entry in weather_data_chrono]
+    pressure = [entry.pressure for entry in weather_data_chrono]
+    return render_template('dashboard.html', weather_data=weather_data, labels=labels, temperature=temperature, humidity=humidity, pressure=pressure)
+    
+
+@app.route('/api/recent_weather')
+@login_required
+@limiter.limit("100 per minute")
+def get_recent_weather():
+    """
+    Returns the latest 10 weather records in JSON format.
+    Used for AJAX polling on the dashboard page.
+    """
+    # Return the same data as the dashboard, but in JSON format for updates
+    weather_data = WeatherData.query.order_by(WeatherData.timestamp.desc()).limit(10).all()
+    weather_data_chrono = weather_data[::-1]
+    
+    data = {
+        'labels': [entry.timestamp.strftime('%H:%M') for entry in weather_data_chrono],
+        'temperature': [entry.temperature for entry in weather_data_chrono],
+        'humidity': [entry.humidity for entry in weather_data_chrono],
+        'pressure': [entry.pressure for entry in weather_data_chrono],
+        'table_data': [
+            {
+                'timestamp': entry.timestamp.strftime('%Y-%m-%d %H:%M'),
+                'temperature': f"{entry.temperature:.1f}",
+                'humidity': f"{entry.humidity:.1f}",
+                'pressure': f"{entry.pressure:.1f}"
+            } for entry in weather_data
+        ]
+    }
+    return jsonify(data)
 
 
 @app.errorhandler(404)
 def not_found(error):
+    """Custom error handler for 404 Page Not Found errors."""
     return render_template('404.html'), 404
 
 
 @app.errorhandler(429)
 def ratelimit_handler(error):
+    """Custom error handler for 429 Too Many Requests (rate limiting)."""
     return "Too many requests. Please try again later.", 429
 
 
 if __name__ == '__main__':
     with app.app_context():
+        # Ensure database tables are created before starting
         db.create_all()
-    app.run(debug=True)
+    app.run(debug=False)
 

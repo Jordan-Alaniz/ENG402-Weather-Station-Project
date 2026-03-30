@@ -1,37 +1,203 @@
 <!DOCTYPE html>
+<!--
+    Weather Dashboard Template
+    This page displays current weather trends with a real-time graph
+    and a table of the most recent observations.
+-->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Weather Dashboard</title>
+    <script src="{{ url_for('static', filename='js/chart.js') }}"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com/">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <h1>Weather Dashboard</h1>
-    <p>Welcome, {{ current_user.username }}! <a href="{{ url_for('logout') }}">Logout</a></p>
+    <div class="container">
+        <a href="{{ url_for('logout') }}" class="logout-link">Logout</a>
+        <h1>Weather Dashboard</h1>
+        <p>Welcome, <strong>{{ current_user.username }}</strong>!</p>
 
-    <h2>Recent Weather Data</h2>
-    <table border="1">
-        <thead>
-            <tr>
-                <th>Timestamp</th>
-                <th>Temperature (°F)</th>
-                <th>Humidity (%)</th>
-                <th>Pressure (hPa)</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for entry in weather_data %}
-            <tr>
-                <td>{{ entry.timestamp }}</td>
-                <td>{{ entry.temperature }}</td>
-                <td>{{ entry.humidity }}</td>
-                <td>{{ entry.pressure }}</td>
-            </tr>
-            {% else %}
-            <tr>
-                <td colspan="4">No data available yet.</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+        <div class="chart-container">
+            <canvas id="myChart"></canvas>
+        </div>
+
+        <div id="update-status" style="text-align: right; font-size: 0.8em; color: #666; margin-bottom: 5px;">
+            Last updated: <span id="last-update">Never</span>
+        </div>
+
+        <h2>Recent Weather Data</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Temperature (°F)</th>
+                    <th>Humidity (%)</th>
+                    <th>Pressure (hPa)</th>
+                </tr>
+            </thead>
+            <tbody id="weather-table-body">
+                {% for entry in weather_data %}
+                <tr>
+                    <td>{{ entry.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>{{ "%.1f"|format(entry.temperature) }}</td>
+                    <td>{{ "%.1f"|format(entry.humidity) }}</td>
+                    <td>{{ "%.1f"|format(entry.pressure) }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4">No data available yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <script>
+        // Configuration for the Chart.js graph
+        const labels = JSON.parse('{{ labels | tojson | safe }}');
+        const tempData = JSON.parse('{{ temperature | tojson | safe }}');
+        const humidityData = JSON.parse('{{ humidity | tojson | safe }}');
+        const pressureData = JSON.parse('{{ pressure | tojson | safe }}');
+
+        const data = {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Temperature (°F)',
+                    backgroundColor: 'rgb(255, 99, 132)',
+                    borderColor: 'rgb(255, 99, 132)',
+                    data: tempData,
+                    yAxisID: 'y',
+                },
+                {
+                    label: 'Humidity (%)',
+                    backgroundColor: 'rgb(54, 162, 235)',
+                    borderColor: 'rgb(54, 162, 235)',
+                    data: humidityData,
+                    yAxisID: 'y1',
+                },
+                {
+                    label: 'Pressure (hPa)',
+                    backgroundColor: 'rgb(75, 192, 192)',
+                    borderColor: 'rgb(75, 192, 192)',
+                    data: pressureData,
+                    yAxisID: 'y2',
+                }]
+        };
+
+        const config = {
+            type: 'line',
+            data: data,
+            options: { 
+                maintainAspectRatio: false,
+                responsive: true,
+                layout: {
+                    padding: {
+                        top: 20,
+                        bottom: 20,
+                        left: 20,
+                        right: 20
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Weather Data Over Time'
+                    }
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Temperature (°F)'
+                        },
+                        beginAtZero: false
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Humidity (%)'
+                        },
+                        grid: {
+                            drawOnChartArea: false, // only want the grid lines for one axis
+                        },
+                        beginAtZero: false
+                    },
+                    y2: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        // offset the second axis on the right side
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        title: {
+                            display: true,
+                            text: 'Pressure (hPa)'
+                        },
+                        beginAtZero: false
+                    }
+                }
+            }
+        };
+
+        const myChart = new Chart(
+            document.getElementById('myChart'),
+            config
+        );
+
+        /**
+         * AJAX Polling function
+         * Fetches new weather data from the /api/recent_weather endpoint
+         * and updates the chart and table dynamically.
+         */
+        async function updateDashboard() {
+            try {
+                const response = await fetch('{{ url_for("get_recent_weather") }}');
+                if (!response.ok) throw new Error('Update failed');
+                
+                const data = await response.json();
+                
+                // Update graph
+                myChart.data.labels = data.labels;
+                myChart.data.datasets[0].data = data.temperature;
+                myChart.data.datasets[1].data = data.humidity;
+                myChart.data.datasets[2].data = data.pressure;
+                myChart.update('none'); // Update without animation for smoother live feeling
+                
+                // Update table
+                const tableBody = document.getElementById('weather-table-body');
+                if (data.table_data.length > 0) {
+                    tableBody.innerHTML = data.table_data.map(entry => `
+                        <tr>
+                            <td>${entry.timestamp}</td>
+                            <td>${entry.temperature}</td>
+                            <td>${entry.humidity}</td>
+                            <td>${entry.pressure}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tableBody.innerHTML = '<tr><td colspan="4">No data available yet.</td></tr>';
+                }
+                
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+            } catch (error) {
+                console.error('Error fetching weather data:', error);
+            }
+        }
+
+        // Poll every 30 seconds
+        setInterval(updateDashboard, 30000);
+        
+        // Initial call to set "Last updated"
+        document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+    </script>
 </body>
 </html>

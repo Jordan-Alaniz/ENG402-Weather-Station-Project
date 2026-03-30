@@ -15,7 +15,7 @@ First, make sure you have Python installed. You can check this by running `py --
    - **macOS/Linux:** `source venv/bin/activate`
 3. **Install dependencies:**
    ```bash
-   pip install flask flask-sqlalchemy python-dotenv requests
+   pip install flask flask-sqlalchemy python-dotenv requests flask-limiter flask-login flask-talisman flask-wtf bcrypt
    ```
 
 ## 2. Configuration (`secrets.env`)
@@ -24,12 +24,32 @@ The project uses environment variables stored in a file named `secrets.env`. Thi
 
 The file should look like this:
 ```env
+FLASK_ENV=development
 SECRET_KEY=your_secret_key_here
 DATABASE_URL=sqlite:///weather.db
 API_KEY_PICO=your_api_key_here
 ```
+*Note: Set `FLASK_ENV=production` in a real deployment to enable strict security headers and secure cookies.*
 
-## 3. Initialize the Database
+## 3. Security Measures
+
+This application includes several built-in security features:
+- **Content Security Policy (CSP):** Restricts where scripts and styles can be loaded from.
+- **Rate Limiting:** Protects against brute-force and DoS attacks (via `Flask-Limiter`).
+- **CSRF Protection:** Prevents cross-site request forgery (via `Flask-WTF`).
+- **Secure Cookies:** Uses `HttpOnly`, `SameSite=Lax`, and `Secure` (in production) flags.
+- **Password Hashing:** Passwords are securely hashed using `bcrypt`.
+- **API Authentication:** Data ingestion is protected by a secret API key.
+- **Input Validation:** All incoming data is strictly validated for type and range.
+
+### Production Recommendations
+When deploying to a public server:
+1. **Use HTTPS:** Always serve the application over TLS/SSL.
+2. **WSGI Server:** Use a production-grade server like `gunicorn` or `uwsgi` instead of the built-in Flask development server.
+3. **Set `FLASK_ENV=production`:** This ensures that the `Secure` flag is set on cookies and HSTS is enforced.
+4. **Firewall:** Restrict access to the database and internal ports.
+
+## 4. Initialize the Database
 
 Before running the server, you need to create the database tables. Run the provided script from the project root:
 
