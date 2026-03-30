@@ -164,6 +164,31 @@ def dashboard():
     humidity = [entry.humidity for entry in weather_data_chrono]
     pressure = [entry.pressure for entry in weather_data_chrono]
     return render_template('dashboard.html', weather_data=weather_data, labels=labels, temperature=temperature, humidity=humidity, pressure=pressure)
+    
+
+@app.route('/api/recent_weather')
+@login_required
+@limiter.limit("100 per minute")
+def get_recent_weather():
+    # Return the same data as the dashboard, but in JSON format for updates
+    weather_data = WeatherData.query.order_by(WeatherData.timestamp.desc()).limit(10).all()
+    weather_data_chrono = weather_data[::-1]
+    
+    data = {
+        'labels': [entry.timestamp.strftime('%H:%M') for entry in weather_data_chrono],
+        'temperature': [entry.temperature for entry in weather_data_chrono],
+        'humidity': [entry.humidity for entry in weather_data_chrono],
+        'pressure': [entry.pressure for entry in weather_data_chrono],
+        'table_data': [
+            {
+                'timestamp': entry.timestamp.strftime('%Y-%m-%d %H:%M'),
+                'temperature': f"{entry.temperature:.1f}",
+                'humidity': f"{entry.humidity:.1f}",
+                'pressure': f"{entry.pressure:.1f}"
+            } for entry in weather_data
+        ]
+    }
+    return jsonify(data)
 
 
 @app.errorhandler(404)

@@ -18,6 +18,10 @@
             <canvas id="myChart"></canvas>
         </div>
 
+        <div id="update-status" style="text-align: right; font-size: 0.8em; color: #666; margin-bottom: 5px;">
+            Last updated: <span id="last-update">Never</span>
+        </div>
+
         <h2>Recent Weather Data</h2>
         <table>
             <thead>
@@ -28,7 +32,7 @@
                     <th>Pressure (hPa)</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="weather-table-body">
                 {% for entry in weather_data %}
                 <tr>
                     <td>{{ entry.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
@@ -142,6 +146,48 @@
             document.getElementById('myChart'),
             config
         );
+
+        // Auto-update function
+        async function updateDashboard() {
+            try {
+                const response = await fetch('{{ url_for("get_recent_weather") }}');
+                if (!response.ok) throw new Error('Update failed');
+                
+                const data = await response.json();
+                
+                // Update graph
+                myChart.data.labels = data.labels;
+                myChart.data.datasets[0].data = data.temperature;
+                myChart.data.datasets[1].data = data.humidity;
+                myChart.data.datasets[2].data = data.pressure;
+                myChart.update('none'); // Update without animation for smoother live feeling
+                
+                // Update table
+                const tableBody = document.getElementById('weather-table-body');
+                if (data.table_data.length > 0) {
+                    tableBody.innerHTML = data.table_data.map(entry => `
+                        <tr>
+                            <td>${entry.timestamp}</td>
+                            <td>${entry.temperature}</td>
+                            <td>${entry.humidity}</td>
+                            <td>${entry.pressure}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tableBody.innerHTML = '<tr><td colspan="4">No data available yet.</td></tr>';
+                }
+                
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+            } catch (error) {
+                console.error('Error fetching weather data:', error);
+            }
+        }
+
+        // Poll every 30 seconds
+        setInterval(updateDashboard, 30000);
+        
+        // Initial call to set "Last updated"
+        document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
     </script>
 </body>
 </html>
