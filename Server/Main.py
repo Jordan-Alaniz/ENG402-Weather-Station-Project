@@ -14,15 +14,32 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request, redirect, url_for, render_template, flash
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_login import LoginManager, login_user, logout_user, login_required
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_talisman import Talisman
 from flask_wtf import CSRFProtect
 
 from db import db
 from models import WeatherData, User, LoginForm
 
+import logging
+
+#for 2FA
+import pyotp
+import pyqrcode
+from io import BytesIO
+import base64
+
 # Initialize Flask app
 app = Flask(__name__)
+
+logging.basicConfig(level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.FileHandler('weather_station.log'),
+        logging.StreamHandler()
+    ])
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv('secrets.env')
@@ -36,13 +53,20 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
 app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=1)
 
+logger.info(f"FLASK_ENV: {os.environ.get('FLASK_ENV')}")
+
 # Ensure the app is not running with a default secret key in production
 if os.environ.get('FLASK_ENV') == 'production' and (not app.config["SECRET_KEY"] or app.config["SECRET_KEY"] == "your_secret_key_here"):
+    logger.error("SECRET_KEY must be set in production environment!")
     raise RuntimeError("SECRET_KEY must be set in production environment!")
 
 # Extensions
 db.init_app(app)
+logger.info("Database initialized.")
+
 csrf = CSRFProtect(app)
+logger.info("CSRF protection enabled.")
+
 Talisman(app,
          force_https=os.environ.get('FLASK_ENV') == 'production',
          strict_transport_security=True,
@@ -54,21 +78,25 @@ Talisman(app,
              'img-src': "'self' data:",
          }
          )
+logger.info("Talisman initialized.")
 
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     default_limits=["100 per day", "5 per hour"]
 )
+logger.info("Rate limiting enabled.")
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+logger.info("Login manager initialized.")
 
 
 @login_manager.user_loader
 def load_user(user_id):
     """Flask-Login user loader to retrieve a user from the database by ID."""
+    logger.info(f"User {user_id} attempted to log in")
     return User.query.get(int(user_id))
 
 
@@ -82,6 +110,7 @@ def require_api_key(f):
     def decorated(*args, **kwargs):
         api_key = request.headers.get('X-API-Key')
         if api_key and api_key == os.environ.get('API_KEY_PICO'):
+            logger.info(f"API key check passed for {get_remote_address()}")
             return f(*args, **kwargs)
         app.logger.warning("Invalid API key. Request rejected.")
         return jsonify({'error': 'Invalid API key'}), 401
@@ -98,16 +127,16 @@ def main():
 
 
 @app.route('/api/weather', methods=['POST'])
-@limiter.limit("65 per hour")
-@csrf.exempt
 @require_api_key
+@limiter.limit("1 per minute") #65 per hour
+@csrf.exempt
 def receive_weather_data():
     """
     API endpoint for the weather station (e.g., Pico) to submit data.
     Validates input ranges and stores data in the SQLite database.
     """
     data = request.get_json()
-
+    logger.info(f"Received weather data: {data}")
     # Check required fields
     required = ['temperature', 'humidity', 'pressure', 'timestamp']
     if not all(field in data for field in required):
@@ -121,12 +150,16 @@ def receive_weather_data():
         validated_timestamp = datetime.datetime.fromisoformat(data['timestamp'])
 
         if not (-50 <= temp <= 150):  # °F range
-            return jsonify({'error': 'Temp out of range'}), 400
+            logger.warning(f"Temp out of range: {temp}")
+            return jsonify({'warning': 'Temp out of range'}), 400
         if not (0 <= humidity <= 100):
-            return jsonify({'error': 'Humidity out of range'}), 400
+            logger.warning(f"Humidity out of range: {humidity}")
+            return jsonify({'warning': 'Humidity out of range'}), 400
         if not (800 <= pressure <= 1200):  # hPa range
-            return jsonify({'error': 'Pressure out of range'}), 400
+            logger.warning(f"Pressure out of range: {pressure}")
+            return jsonify({'warning': 'Pressure out of range'}), 400
     except (ValueError, TypeError):
+        logger.error("Invalid data types in request")
         return jsonify({'error': 'Invalid data types'}), 400
 
     # Data is validated, safe to use
@@ -138,6 +171,7 @@ def receive_weather_data():
     )
     db.session.add(weather_entry)
     db.session.commit()
+    logger.info(f"Weather data saved: {weather_entry}")
 
     return jsonify({'message': 'Data received successfully'}), 201
 
@@ -149,6 +183,7 @@ def login():
     Handles user login. Validates credentials against hashed passwords
     stored in the database using bcrypt.
     """
+    logger.info(f"Login attempt from {get_remote_address()}")
     form = LoginForm()
     if form.validate_on_submit():
         user = User.query.filter_by(username=form.username.data).first()
@@ -157,6 +192,7 @@ def login():
                                       user.password_hash.encode('utf-8') if isinstance(user.password_hash, str) else user.password_hash)
             if pw_match:
                 login_user(user, remember=True)
+                logger.info(f"User {form.username.data} logged in")
                 return redirect(url_for('dashboard'))
             else:
                 app.logger.warning(f"Login failed: Invalid password for user {form.username.data}")
@@ -171,6 +207,7 @@ def login():
 def logout():
     """Logs out the current user and redirects to the login page."""
     logout_user()
+    logger.info(f"User logged out")
     return redirect(url_for('login'))
 
 
@@ -189,6 +226,7 @@ def dashboard():
     temperature = [entry.temperature for entry in weather_data_chrono]
     humidity = [entry.humidity for entry in weather_data_chrono]
     pressure = [entry.pressure for entry in weather_data_chrono]
+    logger.info(f"Dashboard rendered for user {current_user.username}")
     return render_template('dashboard.html', weather_data=weather_data, labels=labels, temperature=temperature, humidity=humidity, pressure=pressure)
     
 
@@ -218,18 +256,21 @@ def get_recent_weather():
             } for entry in weather_data
         ]
     }
+    logger.info(f"Recent weather data requested: {data}")
     return jsonify(data)
 
 
 @app.errorhandler(404)
 def not_found(error):
     """Custom error handler for 404 Page Not Found errors."""
+    logger.warning(f"404 Not Found: {request.url}")
     return render_template('404.html'), 404
 
 
 @app.errorhandler(429)
 def ratelimit_handler(error):
     """Custom error handler for 429 Too Many Requests (rate limiting)."""
+    logger.warning(f"Rate limit exceeded: {get_remote_address()}")
     return "Too many requests. Please try again later.", 429
 
 

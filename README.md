@@ -82,6 +82,24 @@ You can test if the server is working by using the provided `test_api_client.py`
    ```
 If successful, you should see a `200 OK` response.
 
+## 6. Running Unit Tests
+
+To run the full suite of unit tests for both the server and the client (Pico), use the provided `run_tests.py` script from the project root. This will execute tests in isolation to verify security features, data validation, and client behavior.
+
+1. Ensure all dependencies are installed (Step 1).
+2. Run the test suite:
+   ```bash
+   py run_tests.py
+   ```
+The test suite covers:
+- **Server API Authentication:** Verifies `X-API-Key` protection.
+- **Data Validation:** Ensures temperature, humidity, and pressure ranges are enforced.
+- **User Authentication:** Tests login/logout and session protection.
+- **Security Headers:** Confirms `Talisman` headers (CSP, HSTS, etc.) are present.
+- **CSRF Protection:** Verifies that forms require a valid CSRF token.
+- **Rate Limiting:** Ensures the `Flask-Limiter` extension is active.
+- **Client Mocking:** Tests the Pico client's logic and error handling without needing a physical sensor or server.
+
 ## API Documentation
 
 ### POST `/api/weather`

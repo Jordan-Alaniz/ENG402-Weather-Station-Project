@@ -62,8 +62,9 @@ def main():
         except requests.exceptions.RequestException as e:
             print(f"Request error: {e}")
 
+        time.sleep(1)
         # Wait before sending the next update
-        while time.time() % 60 != 59:
+        while int(time.time() % 60) != 59:
             time.sleep(1)
 
 
