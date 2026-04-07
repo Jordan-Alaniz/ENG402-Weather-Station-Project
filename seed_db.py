@@ -4,20 +4,17 @@ Database Seeding Utility
 Creates an initial admin user if one does not already exist.
 Password is read from environment variables or prompted securely.
 """
-
+import pyotp
 from flask_sqlalchemy import SQLAlchemy
 import os
 import bcrypt
 from flask import Flask
 from dotenv import load_dotenv
 import getpass
+import secrets
+from Server.models import User
+from Server.db import db
 
-db = SQLAlchemy()
-
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
 
 # Optional: load local env file if present (but do NOT commit it)
 load_dotenv("Server/secrets.env")
@@ -49,7 +46,11 @@ def create_admin(allow_password_update: bool = False):
         hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
         if not user:
-            db.session.add(User(username=username, password_hash=hashed_password))
+            twofa_secret = pyotp.random_base32()
+            twofa_enabled = False
+            #fully create new user entry
+            user = User(username=username, password_hash=hashed_password, two_fa_secret=twofa_secret, two_fa_enabled=twofa_enabled)
+            db.session.add(user)
             print(f"Admin user created: username='{username}'")
         else:
             if allow_password_update:

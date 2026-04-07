@@ -14,6 +14,37 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    <div style="background: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 4px; border-left: 4px solid #007bff;">
+        <h3 style="margin-top: 0;">Security Settings</h3>
+        <p style="margin: 10px 0;">
+            <strong>Two-Factor Authentication:</strong>
+            {% if current_user.two_fa_enabled %}
+                <span style="color: #28a745;">✓ Enabled</span>
+            {% else %}
+                <span style="color: #dc3545;">✗ Disabled</span>
+            {% endif %}
+        </p>
+
+        {% if current_user.two_fa_enabled %}
+            <form method="POST" action="{{ url_for('disable_2fa') }}" style="display: inline;"
+                  onsubmit="return confirm('Are you sure you want to disable 2FA?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" style="background: #dc3545; color: white; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer;">
+                    Disable 2FA
+                </button>
+            </form>
+            <form method="POST" action="{{ url_for('regenerate_backup_codes') }}" style="display: inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" style="background: #ffc107; color: #333; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer;">
+                    Regenerate Backup Codes
+                </button>
+            </form>
+        {% else %}
+            <a href="{{ url_for('setup_2fa') }}" style="background: #28a745; color: white; padding: 8px 15px; border-radius: 4px; text-decoration: none;">
+                Enable 2FA
+            </a>
+        {% endif %}
+    </div>
     <div class="container">
         <a href="{{ url_for('logout') }}" class="logout-link">Logout</a>
         <h1>Weather Dashboard</h1>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Backup Codes - Weather Station</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com/">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .backup-container {
+            max-width: 550px;
+            margin: 50px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .warning-box {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .warning-box strong {
+            color: #856404;
+        }
+        .backup-codes {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin: 25px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border: 2px solid #dee2e6;
+            border-radius: 4px;
+        }
+        .backup-code {
+            font-family: monospace;
+            font-size: 14px;
+            font-weight: bold;
+            padding: 10px;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .btn-primary {
+            width: 100%;
+            padding: 12px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+        .btn-secondary {
+            width: 100%;
+            padding: 12px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+            text-decoration: none;
+            display: block;
+            text-align: center;
+        }
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+    </style>
+</head>
+<body>
+    <div class="backup-container">
+        <h2>New Backup Codes Generated</h2>
+        
+        <div class="warning-box">
+            <strong>⚠️ IMPORTANT:</strong> These are your new backup codes. 
+            Your old backup codes have been invalidated. Save these in a safe place!
+        </div>
+        
+        <p>Each backup code can only be used <strong>once</strong> to log in if you lose access to your authenticator app.</p>
+        
+        <div class="backup-codes">
+            {% for code in backup_codes %}
+            <div class="backup-code">{{ code }}</div>
+            {% endfor %}
+        </div>
+        
+        <button onclick="downloadBackupCodes()" class="btn-primary">
+            📥 Download as Text File
+        </button>
+        
+        <button onclick="window.print()" class="btn-primary" style="background: #17a2b8; margin-top: 5px;">
+            🖨️ Print Backup Codes
+        </button>
+        
+        <a href="{{ url_for('dashboard') }}" class="btn-secondary">Return to Dashboard</a>
+    </div>
+    
+    <script>
+        function downloadBackupCodes() {
+            const codes = {{ backup_codes | tojson }};
+            const text = "Weather Station 2FA Backup Codes\n" +
+                        "================================\n" +
+                        "Generated: " + new Date().toLocaleString() + "\n\n" +
+                        "IMPORTANT: Store these codes in a safe place!\n" +
+                        "Each code can only be used once.\n\n" +
+                        codes.join("\n") + "\n\n" +
+                        "Keep these codes secure and private!";
+            
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'weather-station-backup-codes-' + Date.now() + '.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+    </script>
+    
+    <style media="print">
+        body { background: white; }
+        .backup-container { box-shadow: none; max-width: 100%; }
+        .btn-primary, .btn-secondary { display: none; }
+    </style>
+</body>
+</html>

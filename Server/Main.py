@@ -11,23 +11,18 @@ from functools import wraps
 
 import bcrypt
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, redirect, url_for, render_template, flash
+from flask import Flask, jsonify, request, redirect, url_for, render_template, flash, session
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_talisman import Talisman
 from flask_wtf import CSRFProtect
 
-from db import db
-from models import WeatherData, User, LoginForm
+import db
+from models import WeatherData, User, LoginForm, BackupCode, FailedTOTPAttempt
+from two_factor_auth import TwoFactorAuth
 
 import logging
-
-#for 2FA
-import pyotp
-import pyqrcode
-from io import BytesIO
-import base64
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -61,7 +56,7 @@ if os.environ.get('FLASK_ENV') == 'production' and (not app.config["SECRET_KEY"]
     raise RuntimeError("SECRET_KEY must be set in production environment!")
 
 # Extensions
-db.init_app(app)
+db.db.init_app(app)
 logger.info("Database initialized.")
 
 csrf = CSRFProtect(app)
@@ -97,7 +92,8 @@ logger.info("Login manager initialized.")
 def load_user(user_id):
     """Flask-Login user loader to retrieve a user from the database by ID."""
     logger.info(f"User {user_id} attempted to log in")
-    return User.query.get(int(user_id))
+    # Fixed: Use db.session.get instead of deprecated User.query.get
+    return db.db.session.get(User, int(user_id))
 
 
 # Helper decorators
@@ -169,8 +165,8 @@ def receive_weather_data():
         pressure=pressure,
         timestamp=validated_timestamp
     )
-    db.session.add(weather_entry)
-    db.session.commit()
+    db.db.session.add(weather_entry)
+    db.db.session.commit()
     logger.info(f"Weather data saved: {weather_entry}")
 
     return jsonify({'message': 'Data received successfully'}), 201
@@ -181,7 +177,7 @@ def receive_weather_data():
 def login():
     """
     Handles user login. Validates credentials against hashed passwords
-    stored in the database using bcrypt.
+    stored in the database using bcrypt. Redirects to 2FA if enabled.
     """
     logger.info(f"Login attempt from {get_remote_address()}")
     form = LoginForm()
@@ -191,9 +187,15 @@ def login():
             pw_match = bcrypt.checkpw(form.password.data.encode('utf-8'), 
                                       user.password_hash.encode('utf-8') if isinstance(user.password_hash, str) else user.password_hash)
             if pw_match:
-                login_user(user, remember=True)
-                logger.info(f"User {form.username.data} logged in")
-                return redirect(url_for('dashboard'))
+                # Fixed: Check two_fa_enabled (not two_factor_auth_enabled)
+                if user.two_fa_enabled:
+                    session['pending_2fa_user_id'] = user.id
+                    logger.info(f"User {form.username.data} requires 2FA")
+                    return redirect(url_for('verify_2fa'))
+                else:
+                    login_user(user, remember=True)
+                    logger.info(f"User {form.username.data} logged in")
+                    return redirect(url_for('dashboard'))
             else:
                 app.logger.warning(f"Login failed: Invalid password for user {form.username.data}")
         else:
@@ -209,6 +211,127 @@ def logout():
     logout_user()
     logger.info(f"User logged out")
     return redirect(url_for('login'))
+
+
+@app.route('/verify-2fa', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
+def verify_2fa():
+    """Verify 2FA code after password login"""
+    user_id = session.get('pending_2fa_user_id')
+    if not user_id:
+        flash('Session expired. Please log in again.')
+        return redirect(url_for('login'))
+
+    # Fixed: Use db.session.get instead of deprecated User.query.get
+    user = db.db.session.get(User, user_id)
+    if not user or not user.two_fa_enabled:
+        session.pop('pending_2fa_user_id', None)
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+        if not code:
+            flash('Please enter a code')
+            return render_template('verify_2fa.html')
+
+        success, message, locked_out = TwoFactorAuth.verify_totp(user, code, allow_backup=True)
+
+        if success:
+            session.pop('pending_2fa_user_id', None)
+            login_user(user, remember=True)
+            logger.info(f"User {user.username} verified 2FA and logged in")
+            flash('Successfully logged in!', 'success')
+            return redirect(url_for('dashboard'))
+        else:
+            logger.warning(f"Failed 2FA attempt for user {user.username}: {message}")
+            if locked_out:
+                session.pop('pending_2fa_user_id', None)
+                flash(message, 'error')
+                return redirect(url_for('login'))
+            else:
+                flash(message, 'error')
+
+    return render_template('verify_2fa.html', username=user.username)
+
+
+@app.route('/setup-2fa', methods=['GET', 'POST'])
+@login_required
+@limiter.limit("5 per minute")
+def setup_2fa():
+    """Setup 2FA for current user"""
+    if current_user.two_fa_enabled:
+        flash('2FA is already enabled', 'info')
+        return redirect(url_for('dashboard'))
+
+    if request.method == 'POST':
+        code = request.form.get('code')
+        if code:
+            success, message, _ = TwoFactorAuth.verify_totp(current_user, code, allow_backup=False)
+            if success:
+                current_user.two_fa_enabled = True
+                db.db.session.commit()
+                logger.info(f"User {current_user.username} enabled 2FA")
+                flash('2FA has been successfully enabled!', 'success')
+                return redirect(url_for('dashboard'))
+            else:
+                flash(f'Verification failed: {message}', 'error')
+                qr_data = TwoFactorAuth.generate_qr_code(current_user)
+                backup_codes = session.get('backup_codes_to_show', [])
+                return render_template('setup_2fa.html',
+                                       qr_code=qr_data['qr_code_base64'],
+                                       secret=qr_data['secret'],
+                                       backup_codes=backup_codes)
+        else:
+            setup_data = TwoFactorAuth.enable_2fa(current_user)
+            session['backup_codes_to_show'] = setup_data['backup_codes']
+            return render_template('setup_2fa.html',
+                                   qr_code=setup_data['qr_data']['qr_code_base64'],
+                                   secret=setup_data['qr_data']['secret'],
+                                   backup_codes=setup_data['backup_codes'])
+
+    if not current_user.two_fa_secret:
+        setup_data = TwoFactorAuth.enable_2fa(current_user)
+        session['backup_codes_to_show'] = setup_data['backup_codes']
+        return render_template('setup_2fa.html',
+                               qr_code=setup_data['qr_data']['qr_code_base64'],
+                               secret=setup_data['qr_data']['secret'],
+                               backup_codes=setup_data['backup_codes'])
+    else:
+        qr_data = TwoFactorAuth.generate_qr_code(current_user)
+        backup_codes = session.get('backup_codes_to_show', [])
+        return render_template('setup_2fa.html',
+                               qr_code=qr_data['qr_code_base64'],
+                               secret=qr_data['secret'],
+                               backup_codes=backup_codes)
+
+
+@app.route('/disable-2fa', methods=['POST'])
+@login_required
+@limiter.limit("5 per minute")
+def disable_2fa():
+    """Disable 2FA"""
+    if not current_user.two_fa_enabled:
+        flash('2FA is not enabled', 'info')
+        return redirect(url_for('dashboard'))
+
+    TwoFactorAuth.disable_2fa(current_user)
+    logger.info(f"User {current_user.username} disabled 2FA")
+    flash('2FA has been disabled', 'warning')
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/regenerate-backup-codes', methods=['POST'])
+@login_required
+@limiter.limit("3 per hour")
+def regenerate_backup_codes():
+    """Regenerate backup codes"""
+    if not current_user.two_fa_enabled:
+        flash('2FA is not enabled', 'error')
+        return redirect(url_for('dashboard'))
+
+    new_codes = TwoFactorAuth.generate_backup_codes(current_user)
+    logger.info(f"User {current_user.username} regenerated backup codes")
+    return render_template('backup_codes.html', backup_codes=new_codes)
 
 
 @app.route('/dashboard')
@@ -275,8 +398,9 @@ def ratelimit_handler(error):
 
 
 if __name__ == '__main__':
+    # Ensure database tables are created before starting
+    # Must be inside app.run() or the app context will be lost
     with app.app_context():
-        # Ensure database tables are created before starting
-        db.create_all()
+        db.db.create_all()
+        logger.info("Database tables created/verified.")
     app.run(debug=False)
-

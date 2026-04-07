@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Verify 2FA - Weather Station</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com/">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .twofa-container {
+            max-width: 450px;
+            margin: 50px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .code-input {
+            width: 100%;
+            font-size: 24px;
+            text-align: center;
+            letter-spacing: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .code-input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        .help-text {
+            color: #666;
+            font-size: 0.9em;
+            margin: 15px 0;
+            text-align: center;
+        }
+        .btn-primary {
+            width: 100%;
+            padding: 12px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+        .btn-link {
+            background: none;
+            border: none;
+            color: #007bff;
+            text-decoration: underline;
+            cursor: pointer;
+            display: block;
+            margin: 15px auto;
+            text-align: center;
+        }
+        .alert {
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="twofa-container">
+        <h2>Two-Factor Authentication</h2>
+        <p class="help-text">Enter the 6-digit code from your Google Authenticator app</p>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="text" 
+                   name="code" 
+                   class="code-input" 
+                   maxlength="14" 
+                   placeholder="000000"
+                   autocomplete="off"
+                   autofocus
+                   required>
+            
+            <button type="submit" class="btn-primary">Verify Code</button>
+        </form>
+        
+        <p class="help-text" style="margin-top: 25px;">
+            Lost your phone? Use a backup code instead.<br>
+            <small>Backup codes are shown when you enable 2FA</small>
+        </p>
+        
+        <a href="{{ url_for('login') }}" class="btn-link">← Back to Login</a>
+    </div>
+    
+    <script>
+        // Auto-format code input (allow spaces/dashes for backup codes)
+        const codeInput = document.querySelector('.code-input');
+        codeInput.addEventListener('input', function(e) {
+            // Allow digits, letters (for backup codes), spaces, and dashes
+            this.value = this.value.toUpperCase();
+        });
+    </script>
+</body>
+</html>
