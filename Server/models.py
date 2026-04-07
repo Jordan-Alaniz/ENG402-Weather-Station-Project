@@ -5,7 +5,7 @@ This module defines the SQLAlchemy models for weather data and users,
 as well as the Flask-WTF login form.
 """
 
-from Server.db import db
+from db import db
 from flask_login import UserMixin
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField

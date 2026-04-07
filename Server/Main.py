@@ -18,7 +18,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_talisman import Talisman
 from flask_wtf import CSRFProtect
 
-import db
+from db import db
 from models import WeatherData, User, LoginForm, BackupCode, FailedTOTPAttempt
 from two_factor_auth import TwoFactorAuth
 
@@ -56,7 +56,7 @@ if os.environ.get('FLASK_ENV') == 'production' and (not app.config["SECRET_KEY"]
     raise RuntimeError("SECRET_KEY must be set in production environment!")
 
 # Extensions
-db.db.init_app(app)
+db.init_app(app)
 logger.info("Database initialized.")
 
 csrf = CSRFProtect(app)
@@ -93,7 +93,7 @@ def load_user(user_id):
     """Flask-Login user loader to retrieve a user from the database by ID."""
     logger.info(f"User {user_id} attempted to log in")
     # Fixed: Use db.session.get instead of deprecated User.query.get
-    return db.db.session.get(User, int(user_id))
+    return db.session.get(User, int(user_id))
 
 
 # Helper decorators
@@ -165,8 +165,8 @@ def receive_weather_data():
         pressure=pressure,
         timestamp=validated_timestamp
     )
-    db.db.session.add(weather_entry)
-    db.db.session.commit()
+    db.session.add(weather_entry)
+    db.session.commit()
     logger.info(f"Weather data saved: {weather_entry}")
 
     return jsonify({'message': 'Data received successfully'}), 201
@@ -223,7 +223,7 @@ def verify_2fa():
         return redirect(url_for('login'))
 
     # Fixed: Use db.session.get instead of deprecated User.query.get
-    user = db.db.session.get(User, user_id)
+    user = db.session.get(User, user_id)
     if not user or not user.two_fa_enabled:
         session.pop('pending_2fa_user_id', None)
         return redirect(url_for('login'))
@@ -269,7 +269,7 @@ def setup_2fa():
             success, message, _ = TwoFactorAuth.verify_totp(current_user, code, allow_backup=False)
             if success:
                 current_user.two_fa_enabled = True
-                db.db.session.commit()
+                db.session.commit()
                 logger.info(f"User {current_user.username} enabled 2FA")
                 flash('2FA has been successfully enabled!', 'success')
                 return redirect(url_for('dashboard'))
@@ -401,6 +401,6 @@ if __name__ == '__main__':
     # Ensure database tables are created before starting
     # Must be inside app.run() or the app context will be lost
     with app.app_context():
-        db.db.create_all()
+        db.create_all(extend_existing=True)
         logger.info("Database tables created/verified.")
     app.run(debug=False)

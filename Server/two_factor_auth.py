@@ -32,8 +32,8 @@ import secrets
 import hmac
 from datetime import datetime, timedelta
 
-from Server import db
-from models import User, BackupCode, FailedTOTPAttempt
+import Server.db
+from Server.models import User, BackupCode, FailedTOTPAttempt
 
 
 class TwoFactorAuth:
