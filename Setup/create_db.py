@@ -6,13 +6,13 @@ the necessary tables for weather data and users.
 """
 
 from flask import Flask
-from db import db
-import models
+from Server.db import db
+import Server.models
 
 from dotenv import load_dotenv
 import os
 
-load_dotenv('secrets.env')
+load_dotenv('../Server/secrets.env')
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")

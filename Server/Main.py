@@ -19,7 +19,7 @@ from flask_talisman import Talisman
 from flask_wtf import CSRFProtect
 
 from db import db
-from models import WeatherData, User, LoginForm, BackupCode, FailedTOTPAttempt
+from models import WeatherData, User, LoginForm
 from two_factor_auth import TwoFactorAuth
 
 import logging
@@ -263,6 +263,23 @@ def setup_2fa():
         flash('2FA is already enabled', 'info')
         return redirect(url_for('dashboard'))
 
+    force_reset = request.args.get('reset') == '1'
+
+    def render_setup_page(qr_data, backup_codes):
+        return render_template('setup_2fa.html',
+                               qr_code=qr_data['qr_code_base64'],
+                               secret=qr_data['secret'],
+                               provisioning_uri=qr_data.get('provisioning_uri', ''),
+                               backup_codes=backup_codes)
+
+    def regenerate_setup(message, level='warning'):
+        logger.warning(f"{message} for user {current_user.username}; generating a fresh 2FA secret.")
+        flash(message, level)
+        setup_data = TwoFactorAuth.enable_2fa(current_user)
+        session['backup_codes_to_show'] = setup_data['backup_codes']
+        logger.debug(f"Regenerated 2FA setup - QR Code size: {len(setup_data['qr_data']['qr_code_base64'])} chars")
+        return render_setup_page(setup_data['qr_data'], setup_data['backup_codes'])
+
     if request.method == 'POST':
         code = request.form.get('code')
         if code:
@@ -275,34 +292,43 @@ def setup_2fa():
                 return redirect(url_for('dashboard'))
             else:
                 flash(f'Verification failed: {message}', 'error')
+                if 'Invalid secret configuration' in message:
+                    return regenerate_setup('Your existing 2FA secret was invalid, so a new QR code and secret were generated.')
+
+                try:
+                    qr_data = TwoFactorAuth.generate_qr_code(current_user)
+                    backup_codes = session.get('backup_codes_to_show', [])
+                    logger.debug(f"QR Code size: {len(qr_data['qr_code_base64'])} chars")
+                    return render_setup_page(qr_data, backup_codes)
+                except ValueError as e:
+                    return regenerate_setup(f'Unable to reuse the current 2FA secret: {e}')
+        else:
+            flash('Please enter the 6-digit code from your authenticator app.', 'error')
+            if current_user.two_fa_secret:
                 qr_data = TwoFactorAuth.generate_qr_code(current_user)
                 backup_codes = session.get('backup_codes_to_show', [])
-                return render_template('setup_2fa.html',
-                                       qr_code=qr_data['qr_code_base64'],
-                                       secret=qr_data['secret'],
-                                       backup_codes=backup_codes)
-        else:
+                logger.debug(f"Setup 2FA retry - QR Code size: {len(qr_data['qr_code_base64'])} chars")
+                return render_setup_page(qr_data, backup_codes)
             setup_data = TwoFactorAuth.enable_2fa(current_user)
             session['backup_codes_to_show'] = setup_data['backup_codes']
-            return render_template('setup_2fa.html',
-                                   qr_code=setup_data['qr_data']['qr_code_base64'],
-                                   secret=setup_data['qr_data']['secret'],
-                                   backup_codes=setup_data['backup_codes'])
+            logger.debug(f"Setup 2FA - QR Code size: {len(setup_data['qr_data']['qr_code_base64'])} chars")
+            return render_setup_page(setup_data['qr_data'], setup_data['backup_codes'])
 
-    if not current_user.two_fa_secret:
+    if force_reset or not current_user.two_fa_secret:
         setup_data = TwoFactorAuth.enable_2fa(current_user)
         session['backup_codes_to_show'] = setup_data['backup_codes']
-        return render_template('setup_2fa.html',
-                               qr_code=setup_data['qr_data']['qr_code_base64'],
-                               secret=setup_data['qr_data']['secret'],
-                               backup_codes=setup_data['backup_codes'])
+        logger.debug(f"Initial 2FA setup - QR Code size: {len(setup_data['qr_data']['qr_code_base64'])} chars")
+        if force_reset:
+            flash('Generated a new 2FA secret and QR code.', 'info')
+        return render_setup_page(setup_data['qr_data'], setup_data['backup_codes'])
     else:
-        qr_data = TwoFactorAuth.generate_qr_code(current_user)
-        backup_codes = session.get('backup_codes_to_show', [])
-        return render_template('setup_2fa.html',
-                               qr_code=qr_data['qr_code_base64'],
-                               secret=qr_data['secret'],
-                               backup_codes=backup_codes)
+        try:
+            qr_data = TwoFactorAuth.generate_qr_code(current_user)
+            backup_codes = session.get('backup_codes_to_show', [])
+            logger.debug(f"Regenerated QR Code - size: {len(qr_data['qr_code_base64'])} chars")
+            return render_setup_page(qr_data, backup_codes)
+        except ValueError as e:
+            return regenerate_setup(f'Unable to use the current 2FA secret: {e}')
 
 
 @app.route('/disable-2fa', methods=['POST'])
@@ -401,6 +427,6 @@ if __name__ == '__main__':
     # Ensure database tables are created before starting
     # Must be inside app.run() or the app context will be lost
     with app.app_context():
-        db.create_all(extend_existing=True)
+        db.create_all()
         logger.info("Database tables created/verified.")
     app.run(debug=False)

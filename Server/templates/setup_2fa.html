@@ -34,8 +34,11 @@
             border-radius: 4px;
         }
         .qr-code-container img {
-            max-width: 250px;
-            height: auto;
+            width: 320px;
+            max-width: 100%;
+            height: 320px;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
         }
         .secret-key {
             background: #f8f9fa;
@@ -154,15 +157,25 @@
         
         <div class="step">
             <h3>Step 2: Scan QR Code</h3>
+            <p style="margin: 8px 0 12px 0; color: #666;">
+                If the QR code won’t scan or the secret looks wrong, generate a fresh QR code and secret below.
+            </p>
+            <a href="{{ url_for('setup_2fa', reset=1) }}" class="btn-secondary" style="margin: 0 0 12px 0;">Generate a new QR code / secret</a>
             <div class="qr-code-container">
-                <img src="data:image/png;base64,{{ qr_code }}" alt="QR Code">
+                <img src="data:image/png;base64,{{ qr_code | safe }}" alt="QR Code" id="qr-code-image">
                 <p style="margin-top: 15px; color: #666; font-size: 0.9em;">
                     Open Google Authenticator and tap <strong>+</strong> → <strong>Scan QR code</strong>
                 </p>
+                <button onclick="downloadQRCode()" style="width: 100%; padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                    Download QR Code
+                </button>
+                <a href="{{ url_for('setup_2fa', reset=1) }}" class="btn-secondary" style="margin-top: 8px;">Generate New QR / Secret</a>
             </div>
             
             <p style="text-align: center; margin: 15px 0; color: #666;">Or enter this secret key manually:</p>
-            <div class="secret-key">{{ secret }}</div>
+            <div class="secret-key" id="secret-key-display">{{ secret }}</div>
+            <button type="button" onclick="copySecretToClipboard(event)" class="btn-secondary" style="margin-top: 8px;">Copy Secret Key</button>
+            <button type="button" onclick="copyProvisioningUri(event)" class="btn-secondary" style="margin-top: 8px;">Copy otpauth URI</button>
         </div>
         
         {% if backup_codes %}
@@ -180,7 +193,7 @@
             </div>
             
             <button onclick="downloadBackupCodes()" style="width: 100%; padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
-                📥 Download Backup Codes
+                Download Backup Codes
             </button>
         </div>
         {% endif %}
@@ -208,6 +221,53 @@
     </div>
     
     <script>
+        // Copy secret key to clipboard
+        function copySecretToClipboard(event) {
+            const secretElement = document.getElementById('secret-key-display');
+            const secretText = secretElement.textContent.trim();
+
+            navigator.clipboard.writeText(secretText).then(function() {
+                const button = event.target;
+                const originalText = button.textContent;
+                button.textContent = '✓ Copied!';
+                setTimeout(function() {
+                    button.textContent = originalText;
+                }, 2000);
+            }).catch(function(err) {
+                alert('Failed to copy: ' + err);
+            });
+        }
+
+        function copyProvisioningUri(event) {
+            const uri = {{ provisioning_uri | tojson }};
+            if (!uri) {
+                alert('No provisioning URI available.');
+                return;
+            }
+
+            navigator.clipboard.writeText(uri).then(function() {
+                const button = event.target;
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                setTimeout(function() {
+                    button.textContent = originalText;
+                }, 2000);
+            }).catch(function(err) {
+                alert('Failed to copy: ' + err);
+            });
+        }
+
+        // Download QR code as image file
+        function downloadQRCode() {
+            const qrImage = document.getElementById('qr-code-image');
+            const link = document.createElement('a');
+            link.href = qrImage.src;
+            link.download = 'weather-station-2fa-qr-code.png';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
         // Download backup codes as text file
         function downloadBackupCodes() {
             const codes = {{ backup_codes | tojson }};
@@ -232,9 +292,11 @@
         
         // Auto-format code input
         const codeInput = document.querySelector('.code-input');
-        codeInput.addEventListener('input', function(e) {
-            this.value = this.value.replace(/[^0-9]/g, '');
-        });
+        if (codeInput) {
+            codeInput.addEventListener('input', function(e) {
+                this.value = this.value.replace(/[^0-9]/g, '');
+            });
+        }
     </script>
 </body>
 </html>

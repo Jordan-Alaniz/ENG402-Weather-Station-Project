@@ -10,7 +10,7 @@ import os
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv('secrets.env')
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', 'Server', 'secrets.env'))
 
 # Configuration
 API_URL = 'http://127.0.0.1:5000/api/weather'
@@ -59,3 +59,4 @@ def test_api():
 
 if __name__ == "__main__":
     test_api()
+

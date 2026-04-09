@@ -4,9 +4,10 @@ import os
 import subprocess
 
 def run_all_tests():
+    tests_root = os.path.dirname(os.path.abspath(__file__))
     test_files = [
-        os.path.join('tests', 'test_server.py'),
-        os.path.join('tests', 'test_client.py')
+        os.path.join(tests_root, 'test_server.py'),
+        os.path.join(tests_root, 'test_client.py')
     ]
     
     success = True

@@ -72,24 +72,24 @@ By default, the server will run on `http://127.0.0.1:5000`.
 
 ## 5. Test the API
 
-You can test if the server is working by using the provided `test_api_client.py` script. 
+You can test if the server is working by using the manual API test script in `tests/manual/test_api_client.py`.
 
 1. Ensure the server is running (Step 4).
 2. Open a new terminal.
 3. Run the test script:
    ```bash
-   py test_api_client.py
+   py tests/manual/test_api_client.py
    ```
 If successful, you should see a `200 OK` response.
 
 ## 6. Running Unit Tests
 
-To run the full suite of unit tests for both the server and the client (Pico), use the provided `run_tests.py` script from the project root. This will execute tests in isolation to verify security features, data validation, and client behavior.
+To run the full suite of unit tests for both the server and the client (Pico), use `tests/run_tests.py` from the project root. This executes tests in isolation to verify security features, data validation, and client behavior.
 
 1. Ensure all dependencies are installed (Step 1).
 2. Run the test suite:
    ```bash
-   py run_tests.py
+   py tests/run_tests.py
    ```
 The test suite covers:
 - **Server API Authentication:** Verifies `X-API-Key` protection.

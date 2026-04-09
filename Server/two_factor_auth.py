@@ -30,10 +30,11 @@ from io import BytesIO
 import base64
 import secrets
 import hmac
+import binascii
 from datetime import datetime, timedelta
 
-import Server.db
-from Server.models import User, BackupCode, FailedTOTPAttempt
+from db import db
+from models import BackupCode, FailedTOTPAttempt
 
 
 class TwoFactorAuth:
@@ -44,14 +45,41 @@ class TwoFactorAuth:
     LOCKOUT_MINUTES = 15    # How long to lock out after too many failures
     BACKUP_CODE_COUNT = 10  # Number of backup codes to generate
     TOTP_VALID_WINDOW = 1   # Allow 1 step before/after (30 seconds tolerance)
+    TOTP_ISSUER = "WeatherStation"
     
     @staticmethod
     def generate_secret():
-        """Generate a new TOTP secret (Base32 encoded)"""
+        """Generate a new TOTP secret (Base32 encoded, 32 characters)"""
+        # pyotp.random_base32() generates 32 bytes which encodes to a proper base32 string
         return pyotp.random_base32()
+
+    @staticmethod
+    def _normalize_secret(secret):
+        """Normalize a secret by removing whitespace/separators and uppercasing it."""
+        if secret is None:
+            return ""
+        return "".join(str(secret).split()).replace("-", "").upper()
     
     @staticmethod
-    def generate_qr_code(user, app_name="Weather Station"):
+    def _validate_secret(secret):
+        """Validate that a secret is properly formatted base32"""
+        secret = TwoFactorAuth._normalize_secret(secret)
+        if not secret:
+            raise ValueError("Secret cannot be empty")
+        # Base32 should only contain characters A-Z and 2-7, and = for padding
+        if not all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567=' for c in secret.upper()):
+            raise ValueError("Secret contains invalid characters. Must be base32 encoded.")
+        # Verify the canonical value can actually be decoded as Base32.
+        # This catches edge cases that are character-valid but still malformed.
+        padded_secret = secret + ('=' * ((8 - len(secret) % 8) % 8))
+        try:
+            base64.b32decode(padded_secret, casefold=True)
+        except (binascii.Error, ValueError) as e:
+            raise ValueError(f"Secret is not valid Base32: {e}")
+        return secret
+
+    @staticmethod
+    def generate_qr_code(user, app_name=None):
         """
         Generate QR code for Google Authenticator setup.
         
@@ -65,26 +93,41 @@ class TwoFactorAuth:
         if not user.two_fa_secret:
             raise ValueError("User must have two_fa_secret set before generating QR code")
         
+        # Validate and normalize the secret
+        try:
+            secret = TwoFactorAuth._validate_secret(user.two_fa_secret)
+        except ValueError as e:
+            raise ValueError(f"Invalid secret format: {e}")
+
+        # Use a compact issuer label for better scanner/app compatibility.
+        issuer = app_name or TwoFactorAuth.TOTP_ISSUER
+
         # Create provisioning URI
-        totp = pyotp.TOTP(user.two_fa_secret)
+        totp = pyotp.TOTP(secret)
         provisioning_uri = totp.provisioning_uri(
             name=user.username,
-            issuer_name=app_name
+            issuer_name=issuer
         )
         
         # Generate QR code
-        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr = qrcode.QRCode(
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=12,
+            border=4
+        )
         qr.add_data(provisioning_uri)
         qr.make(fit=True)
         
         img = qr.make_image(fill_color="black", back_color="white")
         buffer = BytesIO()
         img.save(buffer, format='PNG')
-        qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
-        
+        buffer.seek(0)
+        qr_code_base64 = base64.b64encode(buffer.getvalue()).decode().strip()
+
         return {
             'qr_code_base64': qr_code_base64,
-            'secret': user.two_fa_secret
+            'secret': secret,
+            'provisioning_uri': provisioning_uri
         }
     
     @staticmethod
@@ -113,13 +156,17 @@ class TwoFactorAuth:
         
         # Try TOTP first
         if len(code) == 6 and code.isdigit():
-            totp = pyotp.TOTP(user.two_fa_secret)
-            # Use constant-time comparison
-            if totp.verify(code, valid_window=TwoFactorAuth.TOTP_VALID_WINDOW):
-                # Success - clear failed attempts
-                TwoFactorAuth._clear_failed_attempts(user)
-                return True, "Code verified successfully", False
-        
+            try:
+                secret = TwoFactorAuth._validate_secret(user.two_fa_secret)
+                totp = pyotp.TOTP(secret)
+                # Verify with time window tolerance (allows codes from previous/next 30-second windows)
+                if totp.verify(code, valid_window=1):
+                    # Success - clear failed attempts
+                    TwoFactorAuth._clear_failed_attempts(user)
+                    return True, "Code verified successfully", False
+            except ValueError as e:
+                return False, f"Invalid secret configuration: {e}", False
+
         # Try backup codes if allowed and code format matches
         if allow_backup and len(code) in [12, 14]:  # Format: XXXX-XXXX-XXXX or XXXXXXXXXXXXXXXX
             if TwoFactorAuth._verify_backup_code(user, code):

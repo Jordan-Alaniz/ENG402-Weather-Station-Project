@@ -17,7 +17,7 @@ from Server.db import db
 
 
 # Optional: load local env file if present (but do NOT commit it)
-load_dotenv("Server/secrets.env")
+load_dotenv("../Server/secrets.env")
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///weather.db"
