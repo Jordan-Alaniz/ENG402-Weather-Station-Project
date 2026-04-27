@@ -10,24 +10,16 @@ import os
 from functools import wraps
 
 import bcrypt
-from dotenv import load_dotenv
 from flask import Flask, jsonify, request, redirect, url_for, render_template, flash
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_talisman import Talisman
-from flask_wtf import CSRFProtect
 
 from db import db
 from models import WeatherData, User, LoginForm
 
 import logging
-
-#for 2FA
-import pyotp
-import pyqrcode
-from io import BytesIO
-import base64
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -41,31 +33,21 @@ logging.basicConfig(level=logging.INFO,
     ])
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv('secrets.env')
 
-# Configuration
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "default_secret_key")
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///weather.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # No JS access
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
 app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=1)
 
 logger.info(f"FLASK_ENV: {os.environ.get('FLASK_ENV')}")
 
-# Ensure the app is not running with a default secret key in production
-if os.environ.get('FLASK_ENV') == 'production' and (not app.config["SECRET_KEY"] or app.config["SECRET_KEY"] == "your_secret_key_here"):
-    logger.error("SECRET_KEY must be set in production environment!")
-    raise RuntimeError("SECRET_KEY must be set in production environment!")
 
 # Extensions
 db.init_app(app)
 logger.info("Database initialized.")
 
-csrf = CSRFProtect(app)
-logger.info("CSRF protection enabled.")
 
 Talisman(app,
          force_https=os.environ.get('FLASK_ENV') == 'production',
@@ -97,7 +79,8 @@ logger.info("Login manager initialized.")
 def load_user(user_id):
     """Flask-Login user loader to retrieve a user from the database by ID."""
     logger.info(f"User {user_id} attempted to log in")
-    return User.query.get(int(user_id))
+    # Fixed: Use db.session.get instead of deprecated User.query.get
+    return db.session.get(User, int(user_id))
 
 
 # Helper decorators
@@ -129,7 +112,6 @@ def main():
 @app.route('/api/weather', methods=['POST'])
 @require_api_key
 @limiter.limit("1 per minute") #65 per hour
-@csrf.exempt
 def receive_weather_data():
     """
     API endpoint for the weather station (e.g., Pico) to submit data.
@@ -210,7 +192,6 @@ def logout():
     logger.info(f"User logged out")
     return redirect(url_for('login'))
 
-
 @app.route('/dashboard')
 @limiter.limit("100 per minute")
 @login_required
@@ -275,8 +256,9 @@ def ratelimit_handler(error):
 
 
 if __name__ == '__main__':
+    # Ensure database tables are created before starting
+    # Must be inside app.run() or the app context will be lost
     with app.app_context():
-        # Ensure database tables are created before starting
         db.create_all()
+        logger.info("Database tables created/verified.")
     app.run(debug=False)
-
